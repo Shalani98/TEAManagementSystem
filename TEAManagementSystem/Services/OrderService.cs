@@ -84,6 +84,43 @@ namespace TEAManagementSystem.Services
 
             return rows > 0;
         }
+        public List<Order> GetAllOrders()
+        {
+            var orders = new List<Order>();
+            var conn = db.GetConn();
+            db.ConOpen();
+
+            string sql = "SELECT * FROM Orders";
+            using (SqlCommand cmd = new SqlCommand(sql, conn))
+            using (SqlDataReader reader = cmd.ExecuteReader())
+            {
+                while (reader.Read())
+                {
+                    orders.Add(new Order
+                    {
+                        OrderId = reader.GetInt32(reader.GetOrdinal("OrderId")),
+                        CustomerId = reader.GetInt32(reader.GetOrdinal("CustomerId")),
+                        SellerId = reader.IsDBNull(reader.GetOrdinal("SellerId"))
+         ? 0
+         : reader.GetInt32(reader.GetOrdinal("SellerId")),
+                        ProductId = reader.GetInt32(reader.GetOrdinal("ProductId")),
+                        SellingPrice = reader.GetDecimal(reader.GetOrdinal("SellingPrice")),
+                        QuantitySold = reader.GetInt32(reader.GetOrdinal("QuantitySold")),
+                        PaymentType = reader.GetString(reader.GetOrdinal("PaymentType")),
+                        MoneyGivenDate = reader.IsDBNull(reader.GetOrdinal("MoneyGivenDate"))
+         ? (DateTime?)null
+         : reader.GetDateTime(reader.GetOrdinal("MoneyGivenDate")),
+                        PaymentStatus = reader.GetString(reader.GetOrdinal("PaymentStatus")),
+                        SellingDate = reader.GetDateTime(reader.GetOrdinal("SellingDate")),
+                        SellerApprovalStatus = reader.GetString(reader.GetOrdinal("SellerApprovalStatus"))
+                    });
+
+                }
+            }
+
+            db.ConClose();
+            return orders;
+        }
 
         // 4. Get Order By ID
         public Order? GetOrderById(int OrderId)

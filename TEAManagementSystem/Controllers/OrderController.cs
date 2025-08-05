@@ -53,5 +53,11 @@ namespace TEAManagementSystem.Controllers
 
             return Ok(order);
         }
+        [HttpGet("all")]
+        public IActionResult  GetAllOrders()
+        {
+            var order = _orderService.GetAllOrders();
+            return Ok(order);
+        }
     }
 }
