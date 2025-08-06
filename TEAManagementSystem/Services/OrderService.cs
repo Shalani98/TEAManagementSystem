@@ -49,20 +49,86 @@ namespace TEAManagementSystem.Services
             var conn = db.GetConn();
             db.ConOpen();
 
-            string sql = @"UPDATE Orders 
-                           SET SellerId = @SellerId, SellerApprovalStatus = @Status 
-                           WHERE OrderId = @OrderId";
+            using var transaction = conn.BeginTransaction();
 
-            using var cmd = new SqlCommand(sql, conn);
-            cmd.Parameters.AddWithValue("@SellerId", sellerId);
-            cmd.Parameters.AddWithValue("@Status", dto.SellerApprovalStatus);
-            cmd.Parameters.AddWithValue("@OrderId", dto.OrderId);
+            try
+            {
+                string checkStockSql = @"
+    SELECT StockBalance 
+    FROM SellerProduct 
+    WHERE SellerId = @SellerId AND ProductId = @ProductId";
 
-            int rows = cmd.ExecuteNonQuery();
-            db.ConClose();
+                using (var cmd = new SqlCommand(checkStockSql, conn, transaction))
+                {
+                    cmd.Parameters.AddWithValue("@SellerId", sellerId);
+                    cmd.Parameters.AddWithValue("@ProductId", dto.ProductId);
 
-            return rows > 0;
+                    var stock = (int?)cmd.ExecuteScalar();
+
+                    if (stock == null || stock < dto.QuantitySold)
+                    {
+                        transaction.Rollback();
+                        db.ConClose();
+                        return false; // Not enough stock
+                    }
+                }
+
+                // 1. Update order status
+                string updateOrderSql = @"
+            UPDATE Orders 
+            SET SellerId = @SellerId, SellerApprovalStatus = @Status 
+            WHERE OrderId = @OrderId";
+
+                using (var cmd = new SqlCommand(updateOrderSql, conn, transaction))
+                {
+                    cmd.Parameters.AddWithValue("@SellerId", sellerId);
+                    cmd.Parameters.AddWithValue("@Status", dto.SellerApprovalStatus);
+                    cmd.Parameters.AddWithValue("@OrderId", dto.OrderId);
+                    cmd.ExecuteNonQuery();
+                }
+
+                if (dto.SellerApprovalStatus == "Approved")
+                {
+                    // 2. Update SellerProduct QuantitySold
+                    string updateSellerProductSql = @"
+                UPDATE SellerProduct
+                SET QuantitySold = QuantitySold + @QuantitySold
+                WHERE SellerId = @SellerId AND ProductId = @ProductId";
+
+                    using (var cmd = new SqlCommand(updateSellerProductSql, conn, transaction))
+                    {
+                        cmd.Parameters.AddWithValue("@QuantitySold", dto.QuantitySold);
+                        cmd.Parameters.AddWithValue("@SellerId", sellerId);
+                        cmd.Parameters.AddWithValue("@ProductId", dto.ProductId);
+                        cmd.ExecuteNonQuery();
+                    }
+
+                    // 3. Update Product table (manufacturer stock)
+                    string updateProductSql = @"
+                UPDATE Product
+                SET QuantitySold = QuantitySold + @QuantitySold
+                WHERE ProductId = @ProductId";
+
+                    using (var cmd = new SqlCommand(updateProductSql, conn, transaction))
+                    {
+                        cmd.Parameters.AddWithValue("@QuantitySold", dto.QuantitySold);
+                        cmd.Parameters.AddWithValue("@ProductId", dto.ProductId);
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+
+                transaction.Commit();
+                db.ConClose();
+                return true;
+            }
+            catch
+            {
+                transaction.Rollback();
+                db.ConClose();
+                return false;
+            }
         }
+
 
         // 3. Update Payment Status (Seller)
         public bool UpdatePaymentStatus(UpdatePaymentStatusDTO dto)
