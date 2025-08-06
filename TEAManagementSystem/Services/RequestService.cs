@@ -115,16 +115,100 @@ namespace TEAManagementSystem.Services
         }
         // Approve Request
         // Approve Request
-        public bool ApproveRequest(int RequestId)
+        public bool ApproveRequest(int requestId)
         {
-            var request = GetById(RequestId);
+            var request = GetById(requestId);
             if (request == null || request.Status != "Pending")
                 return false;
 
-            // Add your additional logic here (e.g., stock check)
+            var conn = db.GetConn();
+            db.ConOpen();
 
-            return UpdateRequestStatus(RequestId, "Approved");
+            SqlTransaction transaction = conn.BeginTransaction();
+
+            try
+            {
+                // Step 1: Get Product by ProductType
+                string getProductSql = "SELECT * FROM Product WHERE ProductType = @ProductType";
+                Product? product = null;
+                using (var getProductCmd = new SqlCommand(getProductSql, conn, transaction))
+                {
+                    getProductCmd.Parameters.AddWithValue("@ProductType", request.ProductType);
+                    using var reader = getProductCmd.ExecuteReader();
+                    if (reader.Read())
+                    {
+                        product = new Product
+                        {
+                            ProductId = (int)reader["ProductId"],
+                            ProductType = reader["ProductType"].ToString()!,
+                            CostPrice = (decimal)reader["CostPrice"],
+                            SellingPrice = (decimal)reader["SellingPrice"],
+                            FullQuantity = (int)reader["FullQuantity"],
+                            QuantitySold = (int)reader["QuantitySold"],
+                            ManufacturerId = (int)reader["ManufacturerId"]
+                        };
+                    }
+                }
+
+                if (product == null)
+                {
+                    transaction.Rollback();
+                    db.ConClose();
+                    return false;
+                }
+
+                int availableStock = product.FullQuantity - product.QuantitySold;
+                if (availableStock < 1)
+                {
+                    transaction.Rollback();
+                    db.ConClose();
+                    return false; // No stock available
+                }
+
+                // Step 2: Update Manufacturer Product QuantitySold (+1)
+                string updateQtySql = "UPDATE Product SET QuantitySold = QuantitySold + 1 WHERE ProductId = @ProductId";
+                using (var updateQtyCmd = new SqlCommand(updateQtySql, conn, transaction))
+                {
+                    updateQtyCmd.Parameters.AddWithValue("@ProductId", product.ProductId);
+                    updateQtyCmd.ExecuteNonQuery();
+                }
+
+                // Step 3: Insert into SellerProduct
+                string insertSellerProductSql = @"INSERT INTO SellerProduct 
+            (SellerId, ProductId, Quantity, SellingPrice, CostPrice)
+            VALUES 
+            (@SellerId, @ProductId, @Quantity, @SellingPrice, @CostPrice)";
+                using (var insertCmd = new SqlCommand(insertSellerProductSql, conn, transaction))
+                {
+                    insertCmd.Parameters.AddWithValue("@SellerId", request.SellerId);
+                    insertCmd.Parameters.AddWithValue("@ProductId", product.ProductId);
+                    insertCmd.Parameters.AddWithValue("@Quantity", 1); // Fixed quantity as example
+                    insertCmd.Parameters.AddWithValue("@SellingPrice", product.SellingPrice);
+                    insertCmd.Parameters.AddWithValue("@CostPrice", product.CostPrice);
+                    insertCmd.ExecuteNonQuery();
+                }
+
+                // Step 4: Update Request Status
+                string updateRequestSql = "UPDATE Request SET Status = 'Approved' WHERE RequestId = @RequestId";
+                using (var updateRequestCmd = new SqlCommand(updateRequestSql, conn, transaction))
+                {
+                    updateRequestCmd.Parameters.AddWithValue("@RequestId", request.RequestId);
+                    updateRequestCmd.ExecuteNonQuery();
+                }
+
+                transaction.Commit();
+                db.ConClose();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                transaction.Rollback();
+                Console.WriteLine("Error during approval: " + ex.Message);
+                db.ConClose();
+                return false;
+            }
         }
+
 
         // Reject Request
         public bool RejectRequest(int RequestId)
