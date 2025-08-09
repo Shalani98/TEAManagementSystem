@@ -79,5 +79,53 @@ namespace TEAManagementSystem.Services
             return rows > 0;
         }
 
+
+        public bool Delete(string productType)
+        {
+            var conn = db.GetConn();
+            db.ConOpen();
+
+            using var transaction = conn.BeginTransaction();
+
+            try
+            {
+                // Delete from SellerProduct first
+                string deleteSellerProductSql = @"
+            DELETE FROM SellerProduct
+            WHERE ProductId IN (SELECT ProductId FROM Product WHERE ProductType = @ProductType)";
+                using var cmdSellerProduct = new SqlCommand(deleteSellerProductSql, conn, transaction);
+                cmdSellerProduct.Parameters.AddWithValue("@ProductType", productType);
+                cmdSellerProduct.ExecuteNonQuery();
+
+                // Delete from Orders next
+                string deleteOrdersSql = @"
+            DELETE FROM Orders
+            WHERE ProductId IN (SELECT ProductId FROM Product WHERE ProductType = @ProductType)";
+                using var cmdOrders = new SqlCommand(deleteOrdersSql, conn, transaction);
+                cmdOrders.Parameters.AddWithValue("@ProductType", productType);
+                cmdOrders.ExecuteNonQuery();
+
+                // Now delete from Product
+                string deleteProductSql = "DELETE FROM Product WHERE ProductType = @ProductType";
+                using var cmdProduct = new SqlCommand(deleteProductSql, conn, transaction);
+                cmdProduct.Parameters.AddWithValue("@ProductType", productType);
+                int rowsDeleted = cmdProduct.ExecuteNonQuery();
+
+                transaction.Commit();
+
+                return rowsDeleted > 0;
+            }
+            catch (Exception)
+            {
+                transaction.Rollback();
+                throw;
+            }
+            finally
+            {
+                db.ConClose();
+            }
+        }
+
+
     }
 }

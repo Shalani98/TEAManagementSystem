@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.AspNetCore.Mvc;
 using TEAManagementSystem.Models;
 using TEAManagementSystem.Services;
 namespace TEAManagementSystem.Controllers
@@ -54,6 +55,19 @@ namespace TEAManagementSystem.Controllers
             bool result = service.Add(product);
             return result ? Ok("Product added successfully") : BadRequest("Error adding product");
         }
+
+        [HttpPost("deleteProduct")]
+        public IActionResult Delete([FromBody] Product model){
+
+            if(model ==null||string.IsNullOrEmpty(model.ProductType)){
+            return BadRequest("Invalid product data");
+            }
+          
+
+
+     bool result = service.Delete(model.ProductType);
+         return result? Ok("Product deleted successfully") : BadRequest("Error deleting product");
+    }
 
 
 
